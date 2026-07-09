@@ -6,7 +6,7 @@ const cors = require("cors");
 const app = express();
 
 app.use(cors({
-    origin: "https://tetris-front.vercel.app"
+    origin: "https://tikkon66.github.io" 
 }));
 app.use(express.json());
 
