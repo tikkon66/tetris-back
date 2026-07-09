@@ -6,33 +6,43 @@ const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 
 // =======================
+// АВТОМАТИЧЕСКОЕ СОЗДАНИЕ ТАБЛИЦ
+// =======================
+async function initDatabase() {
+  try {
+    // 1. Создаем таблицу пользователей
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        email VARCHAR(255) UNIQUE NOT NULL,
+        password TEXT NOT NULL,
+        nickname VARCHAR(30) UNIQUE NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
+    // 2. Создаем таблицу рекордов со связью CASCADE
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS scores (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+        score INTEGER NOT NULL DEFAULT 0
+      );
+    `);
+
+    console.log("=== [DATABASE]: Таблицы 'users' и 'scores' успешно проверены/созданы ===");
+  } catch (error) {
+    console.error("=== [DATABASE ERROR]: Ошибка инициализации таблиц ===");
+    console.error(error);
+  }
+}
+
+// Запускаем проверку таблиц сразу при подключении этого роутера
+initDatabase();
+
+// =======================
 // REGISTER
 // =======================
-
-// async function init() {
-//   await pool.query(`
-//     CREATE TABLE IF NOT EXISTS users (
-//       id SERIAL PRIMARY KEY,
-//       email VARCHAR(255) UNIQUE NOT NULL,
-//       password TEXT NOT NULL,
-//       nickname VARCHAR(30) UNIQUE NOT NULL,
-//       created_at TIMESTAMP DEFAULT NOW()
-//     );
-//   `);
-
-//   await pool.query(`
-//     CREATE TABLE IF NOT EXISTS scores (
-//       id SERIAL PRIMARY KEY,
-//       user_id INTEGER UNIQUE REFERENCES users(id),
-//       score INTEGER NOT NULL DEFAULT 0
-//     );
-//   `);
-
-//   console.log("Tables ready");
-// }
-
-// init();
-
 router.post("/register", async (req, res) => {
   try {
     const { email, password, nickname } = req.body;
@@ -72,7 +82,6 @@ router.post("/register", async (req, res) => {
 // =======================
 // LOGIN
 // =======================
-
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
