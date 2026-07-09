@@ -5,12 +5,12 @@ const pool = require("../db");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 
-// =======================
-// АВТОМАТИЧЕСКОЕ СОЗДАНИЕ ТАБЛИЦ
-// =======================
+// ==========================================
+// 1. АВТОМАТИЧЕСКАЯ ИНИЦИАЛИЗАЦИЯ БАЗЫ ДАННЫХ
+// ==========================================
 async function initDatabase() {
   try {
-    // 1. Создаем таблицу пользователей
+    // Создаем таблицу пользователей
     await pool.query(`
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
@@ -21,7 +21,7 @@ async function initDatabase() {
       );
     `);
 
-    // 2. Создаем таблицу рекордов со связью CASCADE
+    // Создаем таблицу рекордов со связью ON DELETE CASCADE
     await pool.query(`
       CREATE TABLE IF NOT EXISTS scores (
         id SERIAL PRIMARY KEY,
@@ -30,22 +30,57 @@ async function initDatabase() {
       );
     `);
 
-    console.log("=== [DATABASE]: Таблицы 'users' и 'scores' успешно проверены/созданы ===");
+    console.log("=== [DATABASE]: Таблицы 'users' и 'scores' проверены и готовы ===");
   } catch (error) {
     console.error("=== [DATABASE ERROR]: Ошибка инициализации таблиц ===");
     console.error(error);
   }
 }
 
-// Запускаем проверку таблиц сразу при подключении этого роутера
+// Запускаем проверку таблиц сразу при подключении файла
 initDatabase();
 
-// =======================
-// REGISTER
-// =======================
+// ==========================================
+// 2. MIDDLEWARE ДЛЯ ПРОВЕРКИ JWT-ТОКЕНА
+// ==========================================
+function auth(req, res, next) {
+  try {
+    const header = req.headers.authorization;
+
+    if (!header) {
+      return res.status(401).json({ error: "No token provided" });
+    }
+
+    const token = header.split(" ")[1];
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = decoded;
+
+    next();
+  } catch (error) {
+    return res.status(401).json({ error: "Invalid token" });
+  }
+}
+
+// Вспомогательная функция получения очков
+async function getScore(userId) {
+  const result = await pool.query(
+    `SELECT score FROM scores WHERE user_id = $1`,
+    [userId]
+  );
+  return result.rows[0]?.score || 0;
+}
+
+// ==========================================
+// 3. РОУТЫ АВТОРИЗАЦИИ (REGISTER & LOGIN)
+// ==========================================
+
+// РЕГИСТРАЦИЯ
 router.post("/register", async (req, res) => {
   try {
     const { email, password, nickname } = req.body;
+    if (!email || !password || !nickname) {
+      return res.status(400).json({ error: "Missing fields" });
+    }
 
     const hash = await bcrypt.hash(password, 10);
 
@@ -60,37 +95,29 @@ router.post("/register", async (req, res) => {
 
     const userId = result.rows[0].id;
 
+    // Сразу создаем запись в таблице рекордов со счетом 0
     await pool.query(
-      `INSERT INTO scores (user_id, score) VALUES ($1, 0)`,
+      `INSERT INTO scores (user_id, score) VALUES ($1, 0) ON CONFLICT DO NOTHING`,
       [userId]
     );
 
-    const token = jwt.sign(
-      { id: userId },
-      process.env.JWT_SECRET,
-      { expiresIn: "7d" }
-    );
-
+    const token = jwt.sign({ id: userId }, process.env.JWT_SECRET, { expiresIn: "7d" });
     res.json({ token });
 
   } catch (error) {
-    console.log(error);
+    console.error(error);
+    if (error.code === "23505") { // Ошибка уникальности в Postgres (уже есть такой email/nick)
+      return res.status(400).json({ error: "Email or Nickname already exists" });
+    }
     res.status(500).json({ error: "Register error" });
   }
 });
 
-// =======================
-// LOGIN
-// =======================
+// ВХОД
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
-
-    const result = await pool.query(
-      `SELECT * FROM users WHERE email = $1`,
-      [email]
-    );
-
+    const result = await pool.query(`SELECT * FROM users WHERE email = $1`, [email]);
     const user = result.rows[0];
 
     if (!user) {
@@ -98,23 +125,124 @@ router.post("/login", async (req, res) => {
     }
 
     const valid = await bcrypt.compare(password, user.password);
-
     if (!valid) {
       return res.status(400).json({ error: "Wrong password" });
     }
 
-    const token = jwt.sign(
-      { id: user.id },
-      process.env.JWT_SECRET,
-      { expiresIn: "7d" }
-    );
-
+    const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: "7d" });
     res.json({ token });
 
   } catch (error) {
-    console.log(error);
+    console.error(error);
     res.status(500).json({ error: "Login error" });
   }
 });
 
+// ==========================================
+// 4. РОУТЫ ИГРОВОЙ ЛОГИКИ И СТАТИСТИКИ
+// ==========================================
+
+// ПОЛУЧИТЬ НИКНЕЙМ ТЕКУЩЕГО ИГРОКА
+router.post("/getnick", auth, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT nickname FROM users WHERE id = $1`,
+      [req.user.id]
+    );
+    const nickname = result.rows[0]?.nickname || "Player";
+    res.json({ nickname });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Get nick error" });
+  }
+});
+
+// ПОЛУЧИТЬ ЛУЧШИЙ СЧЕТ ТЕКУЩЕГО ИГРОКА
+router.post("/getscore", auth, async (req, res) => {
+  try {
+    const score = await getScore(req.user.id);
+    res.json({ score });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ОБНОВИТЬ СЧЕТ (ЕСЛИ ОН ВЫШЕ СТАРОГО)
+router.post("/updatescore", auth, async (req, res) => {
+  try {
+    const { score } = req.body;
+    const userId = req.user.id;
+
+    const oldScore = await getScore(userId);
+
+    if (score > oldScore) {
+      await pool.query(
+        `
+        UPDATE scores
+        SET score = $1
+        WHERE user_id = $2
+        `,
+        [score, userId]
+      );
+      return res.json({ message: "Record updated", updated: true });
+    }
+
+    res.json({ message: "Not beaten", updated: false });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Save error" });
+  }
+});
+
+// ТАБЛИЦА ЛИДЕРОВ (Доступна всем без авторизации)
+router.get("/leaderboard", async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT
+        users.nickname,
+        users.created_at,
+        scores.score
+      FROM scores
+      JOIN users ON users.id = scores.user_id
+      ORDER BY scores.score DESC
+      LIMIT 100
+    `);
+
+    // Если вдруг в базе пусто, отдаем аккуратный пустой массив, а не падение 500
+    res.json(result.rows || []);
+  } catch (error) {
+    console.error("Leaderboard DB Error: ", error);
+    res.status(500).json({ error: "Leaderboard error" });
+  }
+});
+
+// СМЕНА НИКНЕЙМА
+router.patch("/nickname", auth, async (req, res) => {
+  try {
+    const { nickname } = req.body;
+    if (!nickname || nickname.length > 30) {
+      return res.status(400).json({ error: "Invalid nickname" });
+    }
+
+    await pool.query(
+      `
+      UPDATE users
+      SET nickname = $1
+      WHERE id = $2
+      `,
+      [nickname, req.user.id]
+    );
+
+    res.json({ message: "Nickname updated" });
+  } catch (error) {
+    console.error(error);
+    if (error.code === "23505") {
+      return res.status(400).json({ error: "Nickname already taken" });
+    }
+    res.status(500).json({ error: "Nickname error" });
+  }
+});
+
+// СТРОГО В САМОМ КОНЦЕ ФАЙЛА КАТЕГОРИЧЕСКИ ОДИН ЭКСПОРТ!
 module.exports = router;
