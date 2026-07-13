@@ -4,9 +4,6 @@ const router = express.Router();
 const pool = require("../db");
 const jwt = require("jsonwebtoken");
 
-// =======================
-// AUTH MIDDLEWARE
-// =======================
 function auth(req, res, next) {
     try {
         const header = req.headers.authorization;
@@ -25,9 +22,6 @@ function auth(req, res, next) {
     }
 }
 
-// =======================
-// HELPER FUNCTIONS
-// =======================
 async function getScore(userId) {
     const result = await pool.query(
         `SELECT score FROM scores WHERE user_id = $1`,
@@ -51,11 +45,6 @@ async function getTable(res) {
     }
 }
 
-// =======================
-// ROUTES
-// =======================
-
-// 1. GET NICKNAME
 router.post("/getnick", auth, async (req, res) => {
     try {
         const result = await pool.query(
@@ -70,7 +59,6 @@ router.post("/getnick", auth, async (req, res) => {
     }
 });
 
-// 2. GET SCORE
 router.post("/getscore", auth, async (req, res) => {
     try {
         const score = await getScore(req.user.id);
@@ -81,7 +69,6 @@ router.post("/getscore", auth, async (req, res) => {
     }
 });
 
-// 3. UPDATE SCORE
 router.post("/updatescore", auth, async (req, res) => {
     try {
         const { score } = req.body;
@@ -108,7 +95,6 @@ router.post("/updatescore", auth, async (req, res) => {
     }
 });
 
-// 4. LEADERBOARD
 router.get("/leaderboard", async (req, res) => {
     try {
         const result = await pool.query(`
@@ -129,7 +115,6 @@ router.get("/leaderboard", async (req, res) => {
     }
 });
 
-// 5. PATCH NICKNAME
 router.patch("/nickname", auth, async (req, res) => {
     try {
         await getTable(res);
@@ -152,5 +137,4 @@ router.patch("/nickname", auth, async (req, res) => {
     }
 });
 
-// Экспорт роутера должен быть СТРОГО в самом конце файла!
 module.exports = router;
