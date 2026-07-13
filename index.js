@@ -10,7 +10,6 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// подключаем роут
 const authRoutes = require("./routes/auth");
 const scoreRoutes = require("./routes/score");
 app.use("/auth", authRoutes);
