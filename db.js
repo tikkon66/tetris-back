@@ -1,19 +1,25 @@
-const { Pool } = require("pg");
+router.get("/leaderboard", async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT
+        users.nickname,
+        users.created_at,
+        scores.score
+      FROM scores
+      JOIN users ON users.id = scores.user_id
+      ORDER BY scores.score DESC
+      LIMIT 100
+    `);
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: {
-    rejectUnauthorized: false // Позволяет подключаться к Supabase напрямую без локального файла сертификата
+    res.json(result.rows);
+  } catch (error) {
+    console.error("=== LEADERBOARD ERROR ===");
+    console.error(error);
+    console.error(error.stack);
+
+    res.status(500).json({
+      error: error.message,
+      code: error.code,
+    });
   }
 });
-
-// Проверка подключения при старте, чтобы сразу видеть ошибки в логах Render
-pool.connect((err, client, release) => {
-  if (err) {
-    return console.error("=== [PG CONNECT ERROR]: Ошибка подключения к базе ===", err.message);
-  }
-  console.log("=== [PG CONNECT SUCCESS]: Успешное прямое подключение к Supabase ===");
-  release();
-});
-
-module.exports = pool;
