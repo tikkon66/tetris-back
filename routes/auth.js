@@ -62,7 +62,7 @@ router.get("/leaderboard", async (req, res) => {
     });
   }
 });
-
+console.log("DATABASE_URL:", process.env.DATABASE_URL?.replace(/:(.*?)@/, ":***@"));
 // Запускаем проверку таблиц сразу при подключении файла
 initDatabase();
 
