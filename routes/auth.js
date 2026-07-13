@@ -5,12 +5,8 @@ const pool = require("../db");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 
-// ==========================================
-// 1. АВТОМАТИЧЕСКАЯ ИНИЦИАЛИЗАЦИЯ БАЗЫ ДАННЫХ
-// ==========================================
 async function initDatabase() {
   try {
-    // Создаем таблицу пользователей
     await pool.query(`
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
@@ -21,7 +17,6 @@ async function initDatabase() {
       );
     `);
 
-    // Создаем таблицу рекордов со связью ON DELETE CASCADE
     await pool.query(`
       CREATE TABLE IF NOT EXISTS scores (
         id SERIAL PRIMARY KEY,
@@ -63,12 +58,8 @@ router.get("/leaderboard", async (req, res) => {
   }
 });
 console.log("DATABASE_URL:", process.env.DATABASE_URL?.replace(/:(.*?)@/, ":***@"));
-// Запускаем проверку таблиц сразу при подключении файла
 initDatabase();
 
-// ==========================================
-// 2. MIDDLEWARE ДЛЯ ПРОВЕРКИ JWT-ТОКЕНА
-// ==========================================
 function auth(req, res, next) {
   try {
     const header = req.headers.authorization;
@@ -87,7 +78,6 @@ function auth(req, res, next) {
   }
 }
 
-// Вспомогательная функция получения очков
 async function getScore(userId) {
   const result = await pool.query(
     `SELECT score FROM scores WHERE user_id = $1`,
@@ -96,11 +86,6 @@ async function getScore(userId) {
   return result.rows[0]?.score || 0;
 }
 
-// ==========================================
-// 3. РОУТЫ АВТОРИЗАЦИИ (REGISTER & LOGIN)
-// ==========================================
-
-// РЕГИСТРАЦИЯ
 router.post("/register", async (req, res) => {
   try {
     const { email, password, nickname } = req.body;
@@ -121,7 +106,6 @@ router.post("/register", async (req, res) => {
 
     const userId = result.rows[0].id;
 
-    // Сразу создаем запись в таблице рекордов со счетом 0
     await pool.query(
       `INSERT INTO scores (user_id, score) VALUES ($1, 0) ON CONFLICT DO NOTHING`,
       [userId]
@@ -132,14 +116,13 @@ router.post("/register", async (req, res) => {
 
   } catch (error) {
     console.error(error);
-    if (error.code === "23505") { // Ошибка уникальности в Postgres (уже есть такой email/nick)
+    if (error.code === "23505") { 
       return res.status(400).json({ error: "Email or Nickname already exists" });
     }
     res.status(500).json({ error: "Register error" });
   }
 });
 
-// ВХОД
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -164,11 +147,6 @@ router.post("/login", async (req, res) => {
   }
 });
 
-// ==========================================
-// 4. РОУТЫ ИГРОВОЙ ЛОГИКИ И СТАТИСТИКИ
-// ==========================================
-
-// ПОЛУЧИТЬ НИКНЕЙМ ТЕКУЩЕГО ИГРОКА
 router.post("/getnick", auth, async (req, res) => {
   try {
     const result = await pool.query(
@@ -183,7 +161,6 @@ router.post("/getnick", auth, async (req, res) => {
   }
 });
 
-// ПОЛУЧИТЬ ЛУЧШИЙ СЧЕТ ТЕКУЩЕГО ИГРОКА
 router.post("/getscore", auth, async (req, res) => {
   try {
     const score = await getScore(req.user.id);
@@ -194,7 +171,6 @@ router.post("/getscore", auth, async (req, res) => {
   }
 });
 
-// ОБНОВИТЬ СЧЕТ (ЕСЛИ ОН ВЫШЕ СТАРОГО)
 router.post("/updatescore", auth, async (req, res) => {
   try {
     const { score } = req.body;
@@ -221,7 +197,6 @@ router.post("/updatescore", auth, async (req, res) => {
   }
 });
 
-// ТАБЛИЦА ЛИДЕРОВ (Доступна всем без авторизации)
 router.get("/leaderboard", async (req, res) => {
   try {
     const result = await pool.query(`
@@ -235,7 +210,6 @@ router.get("/leaderboard", async (req, res) => {
       LIMIT 100
     `);
 
-    // Если вдруг в базе пусто, отдаем аккуратный пустой массив, а не падение 500
     res.json(result.rows || []);
   } catch (error) {
     console.error("Leaderboard DB Error: ", error);
@@ -243,7 +217,6 @@ router.get("/leaderboard", async (req, res) => {
   }
 });
 
-// СМЕНА НИКНЕЙМА
 router.patch("/nickname", auth, async (req, res) => {
   try {
     const { nickname } = req.body;
@@ -270,5 +243,4 @@ router.patch("/nickname", auth, async (req, res) => {
   }
 });
 
-// СТРОГО В САМОМ КОНЦЕ ФАЙЛА КАТЕГОРИЧЕСКИ ОДИН ЭКСПОРТ!
 module.exports = router;
